@@ -4,7 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiCheck, FiArrowLeft, FiX, FiUser, FiSearch, FiCalendar, FiClock, FiPhone, FiMail, FiChevronDown } from "react-icons/fi";
+import {
+  FiCheck,
+  FiArrowLeft,
+  FiX,
+  FiUser,
+  FiSearch,
+  FiCalendar,
+  FiClock,
+  FiPhone,
+  FiMail,
+  FiChevronDown,
+} from "react-icons/fi";
 import { TfiCar } from "react-icons/tfi";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -27,7 +38,7 @@ export default function NewAppointmentPage() {
     email: "",
     phoneNumber: "",
     contactMethod: "whatsapp",
-    status: "confermata"
+    status: "confermata",
   });
 
   // State per autocompletamento
@@ -46,13 +57,25 @@ export default function NewAppointmentPage() {
   const [availableTimes, setAvailableTimes] = useState([]);
   const [typeSearch, setTypeSearch] = useState("");
   const [selectedType, setSelectedType] = useState(null);
+  const [workingHours, setWorkingHours] = useState({
+    appointmentsDuration: 30,
+    hours: {
+      0: [],
+      1: [],
+      2: [],
+      3: [],
+      4: [],
+      5: [],
+      6: [],
+    },
+  });
 
   // Funzione per gestire i cambiamenti nei campi del form
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
@@ -60,26 +83,50 @@ export default function NewAppointmentPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      
-      const { data: { user } } = await supabase.auth.getUser();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         const { data: workerData } = await supabase
           .from("Workers")
           .select("workshopId")
           .eq("workerId", user.id)
           .single();
-        
+
         if (workerData) {
           setWorkshopId(workerData.workshopId);
-          
+
           // Carica appuntamenti esistenti
           const { data: appointments } = await supabase
             .from("Appointments")
             .select("date")
             .eq("workshopId", workerData.workshopId);
-          
+
           if (appointments) {
-            setBookedSlots(appointments.map(a => new Date(a.date).getTime()));
+            setBookedSlots(appointments.map((a) => new Date(a.date).getTime()));
+          }
+
+          // Carica gli orari di lavoro
+          const { data: workingHoursData } = await supabase
+            .from("WorkingHours")
+            .select("*")
+            .eq("workshopId", workerData.workshopId)
+            .single();
+
+          if (workingHoursData) {
+            setWorkingHours({
+              appointmentsDuration: workingHoursData.appointmentsDuration || 30,
+              hours: workingHoursData.hours || {
+                0: [],
+                1: [],
+                2: [],
+                3: [],
+                4: [],
+                5: [],
+                6: [],
+              },
+            });
           }
 
           // Fetch vehicle types
@@ -88,10 +135,9 @@ export default function NewAppointmentPage() {
             .select("type")
             .order("type", { ascending: true });
 
-            console.log(typesData)
           if (typesData) {
-            setVehicleTypes(typesData.map(t => t.type));
-            setFilteredTypes(typesData.map(t => t.type));
+            setVehicleTypes(typesData.map((t) => t.type));
+            setFilteredTypes(typesData.map((t) => t.type));
           }
         }
       }
@@ -103,33 +149,58 @@ export default function NewAppointmentPage() {
 
   // Genera orari disponibili quando cambia la data
   useEffect(() => {
-    if (formData.date) {
-      const times = [];
-      const startHour = 9; // 9:00 AM
-      const endHour = 18; // 6:00 PM
-      
-      for (let hour = startHour; hour < endHour; hour++) {
-        for (let minute = 0; minute < 60; minute += 30) {
-          const time = new Date(formData.date);
-          time.setHours(hour, minute, 0, 0);
-          
-          if (!bookedSlots.includes(time.getTime())) {
-            times.push(time);
-          }
-        }
+    if (formData.date && workshopId) {
+      // Sostituisci questa parte nell'useEffect che genera gli orari disponibili
+      const dayOfWeek = formData.date.getDay(); // Rimuovi .toString() per usare numero invece di stringa
+      const dayWorkingHours = workingHours.hours?.[dayOfWeek] || []; // Ora cerca direttamente per numero
+
+      // Se non ci sono orari specificati per quel giorno, non mostrare nessun orario
+      if (dayWorkingHours.length === 0) {
+        setAvailableTimes([]);
+        return;
       }
-      
+
+      const times = [];
+      const appointmentDuration = workingHours.appointmentsDuration || 30; // in minuti
+
+      // Per ogni fascia oraria di lavoro
+      dayWorkingHours.forEach((slot) => {
+        const [startHour, startMinute] = slot.start.split(":").map(Number);
+        const [endHour, endMinute] = slot.end.split(":").map(Number);
+
+        const startTime = new Date(formData.date);
+        startTime.setHours(startHour, startMinute, 0, 0);
+
+        const endTime = new Date(formData.date);
+        endTime.setHours(endHour, endMinute, 0, 0);
+
+        // Genera gli slot disponibili all'interno di questa fascia oraria
+        let currentTime = new Date(startTime);
+
+        while (currentTime <= endTime) {
+          // Verifica che lo slot non sia già prenotato
+          if (!bookedSlots.includes(currentTime.getTime())) {
+            times.push(new Date(currentTime));
+          }
+
+          // Avanza dello slot duration
+          currentTime = new Date(
+            currentTime.getTime() + appointmentDuration * 60000,
+          );
+        }
+      });
+
       setAvailableTimes(times);
     } else {
       setAvailableTimes([]);
     }
-  }, [formData.date, bookedSlots]);
+  }, [formData.date, bookedSlots, workingHours, workshopId]);
 
   // Filter vehicle types
   useEffect(() => {
     if (typeSearch) {
-      const filtered = vehicleTypes.filter(type =>
-        type.toLowerCase().includes(typeSearch.toLowerCase())
+      const filtered = vehicleTypes.filter((type) =>
+        type.toLowerCase().includes(typeSearch.toLowerCase()),
       );
       setFilteredTypes(filtered);
     } else {
@@ -137,9 +208,16 @@ export default function NewAppointmentPage() {
     }
   }, [typeSearch, vehicleTypes]);
 
+  // Disabilita i giorni non lavorativi nel DatePicker
+  const isDayDisabled = (date) => {
+    if (!workingHours?.hours) return true;
+    const dayOfWeek = date.getDay(); // Numero invece di stringa
+    const dayWorkingHours = workingHours.hours[dayOfWeek] || [];
+    return dayWorkingHours.length === 0;
+  };
   // Autocompletamento veicoli
   const handlePlateChange = async (value) => {
-    setFormData(prev => ({ ...prev, plateNumber: value }));
+    setFormData((prev) => ({ ...prev, plateNumber: value }));
     setShowVehicleSuggestions(false);
     setExistingVehicle(null);
 
@@ -162,14 +240,14 @@ export default function NewAppointmentPage() {
 
   const handleTypeSelect = (type) => {
     setSelectedType(type);
-    setFormData(prev => ({ ...prev, type }));
+    setFormData((prev) => ({ ...prev, type }));
     setTypeSearch(type);
     setShowTypeDropdown(false);
   };
 
   // Autocompletamento clienti
   const handleCustomerSearch = async (value) => {
-    setFormData(prev => ({ ...prev, fullName: value }));
+    setFormData((prev) => ({ ...prev, fullName: value }));
     setShowCustomerSuggestions(false);
     setExistingCustomer(null);
 
@@ -192,17 +270,17 @@ export default function NewAppointmentPage() {
 
   // Selezione veicolo esistente
   const selectVehicle = (vehicle) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       plateNumber: vehicle.plateNumber,
       brand: vehicle.brand || "",
-      model: vehicle.model || ""
+      model: vehicle.model || "",
     }));
-    
+
     if (vehicle.owner) {
       selectCustomer(vehicle.owner);
     }
-    
+
     setExistingVehicle(vehicle);
     setShowVehicleSuggestions(false);
     setShowVehicleFields(false);
@@ -210,12 +288,12 @@ export default function NewAppointmentPage() {
 
   // Selezione cliente esistente
   const selectCustomer = (customer) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       fullName: customer.fullName,
       email: customer.email || "",
       phoneNumber: customer.phoneNumber || "",
-      contactMethod: customer.contactMethod || "whatsapp"
+      contactMethod: customer.contactMethod || "whatsapp",
     }));
     setExistingCustomer(customer);
     setShowCustomerSuggestions(false);
@@ -230,9 +308,12 @@ export default function NewAppointmentPage() {
 
     try {
       if (!workshopId) throw new Error("Nessun workshop associato");
-      if (!formData.date || !formData.time) throw new Error("Seleziona data e ora");
-      if (!formData.plateNumber) throw new Error("Inserisci la targa del veicolo");
-      if (!formData.fullName || !formData.phoneNumber) throw new Error("Inserisci i dati del cliente");
+      if (!formData.date || !formData.time)
+        throw new Error("Seleziona data e ora");
+      if (!formData.plateNumber)
+        throw new Error("Inserisci la targa del veicolo");
+      if (!formData.fullName || !formData.phoneNumber)
+        throw new Error("Inserisci i dati del cliente");
 
       const appointmentDateTime = new Date(formData.date);
       appointmentDateTime.setHours(formData.time.getHours());
@@ -245,14 +326,16 @@ export default function NewAppointmentPage() {
       if (!existingCustomer) {
         const { data: customerData, error: customerError } = await supabase
           .from("Customers")
-          .insert([{
-            fullName: formData.fullName,
-            email: formData.email,
-            phoneNumber: formData.phoneNumber,
-            contactMethod: formData.contactMethod,
-            PlateNumbers: [formData.plateNumber],
-            workshopId,
-          }])
+          .insert([
+            {
+              fullName: formData.fullName,
+              email: formData.email,
+              phoneNumber: formData.phoneNumber,
+              contactMethod: formData.contactMethod,
+              PlateNumbers: [formData.plateNumber],
+              workshopId,
+            },
+          ])
           .select()
           .single();
 
@@ -264,15 +347,17 @@ export default function NewAppointmentPage() {
       if (!existingVehicle) {
         const { data: vehicleData, error: vehicleError } = await supabase
           .from("Vehicles")
-          .insert([{
-            plateNumber: formData.plateNumber,
-            brand: formData.brand,
-            model: formData.model,
-            workshopId,
-            ownerId: customerId,
-            lastAppointmentId: null,
-            nextAppointmentId: null,
-          }])
+          .insert([
+            {
+              plateNumber: formData.plateNumber,
+              brand: formData.brand,
+              model: formData.model,
+              workshopId,
+              ownerId: customerId,
+              lastAppointmentId: null,
+              nextAppointmentId: null,
+            },
+          ])
           .select()
           .single();
 
@@ -287,8 +372,10 @@ export default function NewAppointmentPage() {
             .eq("id", customerId)
             .single();
 
-          const updatedPlates = [...(customerData?.PlateNumbers || []), formData.plateNumber]
-            .filter((v, i, a) => a.indexOf(v) === i); // Rimuovi duplicati
+          const updatedPlates = [
+            ...(customerData?.PlateNumbers || []),
+            formData.plateNumber,
+          ].filter((v, i, a) => a.indexOf(v) === i); // Rimuovi duplicati
 
           await supabase
             .from("Customers")
@@ -300,24 +387,25 @@ export default function NewAppointmentPage() {
       // Crea prenotazione
       const { data: appointmentData, error: appointmentError } = await supabase
         .from("Appointments")
-        .insert([{
-          date: appointmentDateTime.toISOString(),
-          workshopId,
-          customerId,
-          vehicleId,
-          status: formData.status
-        }])
+        .insert([
+          {
+            date: appointmentDateTime.toISOString(),
+            workshopId,
+            customerId,
+            vehicleId,
+            status: formData.status,
+          },
+        ])
         .select()
         .single();
 
       if (appointmentError) throw appointmentError;
 
-      // Aggiorna veicolo con lastAppointmentId e nextAppointmentId
       const { error: vehicleUpdateError } = await supabase
         .from("Vehicles")
         .update({
           lastAppointmentId: appointmentData.id,
-          nextAppointmentId: appointmentData.id
+          nextAppointmentId: appointmentData.id,
         })
         .eq("id", vehicleId);
 
@@ -326,14 +414,19 @@ export default function NewAppointmentPage() {
       router.push("/dashboard/appointments");
     } catch (error) {
       console.error("Errore:", error);
-      setError(error.message || "Si è verificato un errore durante il salvataggio.");
+      setError(
+        error.message || "Si è verificato un errore durante il salvataggio.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const formatTime = (date) => {
-    return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
@@ -385,14 +478,19 @@ export default function NewAppointmentPage() {
                 <FiCalendar className="text-blue-500" />
                 Data e Ora
               </h2>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Data *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Data *
+                  </label>
                   <DatePicker
                     selected={formData.date}
-                    onChange={(date) => setFormData(prev => ({ ...prev, date, time: null }))}
+                    onChange={(date) =>
+                      setFormData((prev) => ({ ...prev, date, time: null }))
+                    }
                     minDate={new Date()}
+                    filterDate={isDayDisabled}
                     dateFormat="dd/MM/yyyy"
                     placeholderText="Seleziona una data"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
@@ -401,7 +499,9 @@ export default function NewAppointmentPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Orario *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Orario *
+                  </label>
                   {formData.date ? (
                     <div className="grid grid-cols-3 gap-2">
                       {availableTimes.length > 0 ? (
@@ -409,22 +509,29 @@ export default function NewAppointmentPage() {
                           <motion.button
                             key={index}
                             type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, time }))}
+                            onClick={() =>
+                              setFormData((prev) => ({ ...prev, time }))
+                            }
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             className={`py-2 px-3 rounded-lg text-sm ${
                               formData.time?.getTime() === time.getTime()
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-100 hover:bg-gray-200'
+                                ? "bg-blue-600 text-white"
+                                : "bg-gray-100 hover:bg-gray-200"
                             }`}
                           >
                             {formatTime(time)}
                           </motion.button>
                         ))
                       ) : (
-                        <div className="text-sm text-gray-500 col-span-3">
-                          Nessun orario disponibile per questa data
-                        </div>
+                      <div className="text-sm text-gray-500 col-span-3">
+                        {!workingHours?.hours ? 
+                          "Caricamento orari di lavoro..." :
+                          (workingHours.hours[formData.date?.getDay()]?.length === 0 ?
+                            "Il centro è chiuso in questo giorno" :
+                            "Nessun orario disponibile per questa data")
+                        }
+                      </div>
                       )}
                     </div>
                   ) : (
@@ -442,9 +549,11 @@ export default function NewAppointmentPage() {
                 <TfiCar className="text-blue-500" />
                 Veicolo
               </h2>
-              
+
               <div className="relative mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Targa *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Targa *
+                </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <TfiCar className="text-gray-400" />
@@ -461,7 +570,12 @@ export default function NewAppointmentPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        setFormData(prev => ({ ...prev, plateNumber: "", brand: "", model: "" }));
+                        setFormData((prev) => ({
+                          ...prev,
+                          plateNumber: "",
+                          brand: "",
+                          model: "",
+                        }));
                         setExistingVehicle(null);
                         setShowVehicleFields(false);
                       }}
@@ -488,10 +602,13 @@ export default function NewAppointmentPage() {
                               onClick={() => selectVehicle(vehicle)}
                               className="w-full text-left px-4 py-2 hover:bg-gray-100 flex justify-between items-center"
                             >
-                              <span className="font-medium">{vehicle.plateNumber}</span>
+                              <span className="font-medium">
+                                {vehicle.plateNumber}
+                              </span>
                               <span className="text-sm text-gray-500">
                                 {vehicle.brand} {vehicle.model}
-                                {vehicle.owner && ` (${vehicle.owner.fullName})`}
+                                {vehicle.owner &&
+                                  ` (${vehicle.owner.fullName})`}
                               </span>
                             </button>
                           </li>
@@ -503,15 +620,19 @@ export default function NewAppointmentPage() {
               </div>
 
               <AnimatePresence>
-                {(showVehicleFields || (existingVehicle && (!existingVehicle.brand || !existingVehicle.model))) && (
+                {(showVehicleFields ||
+                  (existingVehicle &&
+                    (!existingVehicle.brand || !existingVehicle.model))) && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
+                    animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden space-y-4 mb-4"
                   >
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Marca *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Marca *
+                      </label>
                       <input
                         type="text"
                         name="brand"
@@ -523,7 +644,9 @@ export default function NewAppointmentPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Modello *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Modello *
+                      </label>
                       <input
                         type="text"
                         name="model"
@@ -536,7 +659,9 @@ export default function NewAppointmentPage() {
 
                     {/* Tipo */}
                     <div className="relative h-50">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tipo
+                      </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                           <TfiCar className="text-gray-400" />
@@ -593,7 +718,7 @@ export default function NewAppointmentPage() {
                               onClick={() => {
                                 setSelectedType(null);
                                 setTypeSearch("");
-                                setFormData(prev => ({ ...prev, type: "" }));
+                                setFormData((prev) => ({ ...prev, type: "" }));
                               }}
                               className="text-gray-500 hover:text-red-500 transition-colors"
                             >
@@ -614,9 +739,11 @@ export default function NewAppointmentPage() {
                 <FiUser className="text-blue-500" />
                 Cliente
               </h2>
-              
+
               <div className="relative mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome cliente *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome cliente *
+                </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <FiUser className="text-gray-400" />
@@ -635,38 +762,43 @@ export default function NewAppointmentPage() {
                 </div>
 
                 <AnimatePresence>
-                  {showCustomerSuggestions && customerSuggestions.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10"
-                    >
-                      <ul className="py-1 max-h-60 overflow-auto">
-                        {customerSuggestions.map((customer) => (
-                          <li key={customer.id}>
-                            <button
-                              type="button"
-                              onClick={() => selectCustomer(customer)}
-                              className="w-full text-left px-4 py-2 hover:bg-gray-100 flex justify-between items-center"
-                            >
-                              <div>
-                                <div className="font-medium">{customer.fullName}</div>
-                                {customer.phoneNumber && (
-                                  <div className="text-sm text-gray-500">{customer.phoneNumber}</div>
+                  {showCustomerSuggestions &&
+                    customerSuggestions.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10"
+                      >
+                        <ul className="py-1 max-h-60 overflow-auto">
+                          {customerSuggestions.map((customer) => (
+                            <li key={customer.id}>
+                              <button
+                                type="button"
+                                onClick={() => selectCustomer(customer)}
+                                className="w-full text-left px-4 py-2 hover:bg-gray-100 flex justify-between items-center"
+                              >
+                                <div>
+                                  <div className="font-medium">
+                                    {customer.fullName}
+                                  </div>
+                                  {customer.phoneNumber && (
+                                    <div className="text-sm text-gray-500">
+                                      {customer.phoneNumber}
+                                    </div>
+                                  )}
+                                </div>
+                                {customer.PlateNumbers?.length > 0 && (
+                                  <span className="text-xs bg-gray-100 rounded-full px-2 py-1">
+                                    {customer.PlateNumbers.length} targhe
+                                  </span>
                                 )}
-                              </div>
-                              {customer.PlateNumbers?.length > 0 && (
-                                <span className="text-xs bg-gray-100 rounded-full px-2 py-1">
-                                  {customer.PlateNumbers.length} targhe
-                                </span>
-                              )}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </motion.div>
-                  )}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </motion.div>
+                    )}
                 </AnimatePresence>
               </div>
 
@@ -674,12 +806,14 @@ export default function NewAppointmentPage() {
                 {(showCustomerFields || !existingCustomer) && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
+                    animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden space-y-4"
                   >
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Email
+                      </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                           <FiMail className="text-gray-400" />
@@ -695,7 +829,9 @@ export default function NewAppointmentPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Telefono *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Telefono *
+                      </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                           <FiPhone className="text-gray-400" />
@@ -712,7 +848,9 @@ export default function NewAppointmentPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Metodo di contatto</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Metodo di contatto
+                      </label>
                       <select
                         name="contactMethod"
                         value={formData.contactMethod}
@@ -732,7 +870,9 @@ export default function NewAppointmentPage() {
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-medium text-gray-900">{existingCustomer.fullName}</h3>
+                      <h3 className="font-medium text-gray-900">
+                        {existingCustomer.fullName}
+                      </h3>
                       <div className="text-sm text-gray-600 mt-1 space-y-1">
                         {existingCustomer.phoneNumber && (
                           <div className="flex items-center gap-2">
@@ -750,11 +890,11 @@ export default function NewAppointmentPage() {
                       type="button"
                       onClick={() => {
                         setExistingCustomer(null);
-                        setFormData(prev => ({
+                        setFormData((prev) => ({
                           ...prev,
                           fullName: "",
                           email: "",
-                          phoneNumber: ""
+                          phoneNumber: "",
                         }));
                       }}
                       className="text-gray-500 hover:text-red-500 transition-colors"
@@ -777,14 +917,14 @@ export default function NewAppointmentPage() {
             >
               Annulla
             </motion.button>
-            
+
             <motion.button
               type="submit"
               disabled={isSubmitting}
               whileHover={{ scale: isSubmitting ? 1 : 1.03 }}
               whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
               className={`px-6 py-2 rounded-lg text-white flex items-center gap-2 ${
-                isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
+                isSubmitting ? "bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
               {isSubmitting ? (
