@@ -11,7 +11,6 @@ import {
   FiUser,
   FiSearch,
   FiCalendar,
-  FiClock,
   FiPhone,
   FiMail,
   FiChevronDown,
@@ -27,13 +26,13 @@ export default function NewAppointmentPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form data
   const [formData, setFormData] = useState({
     date: null,
     time: null,
     plateNumber: "",
     brand: "",
     model: "",
+    type: "",
     fullName: "",
     email: "",
     phoneNumber: "",
@@ -41,7 +40,6 @@ export default function NewAppointmentPage() {
     status: "confermata",
   });
 
-  // State per autocompletamento
   const [vehicleSuggestions, setVehicleSuggestions] = useState([]);
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [showVehicleSuggestions, setShowVehicleSuggestions] = useState(false);
@@ -60,17 +58,16 @@ export default function NewAppointmentPage() {
   const [workingHours, setWorkingHours] = useState({
     appointmentsDuration: 30,
     hours: {
-      0: [],
-      1: [],
-      2: [],
-      3: [],
-      4: [],
-      5: [],
-      6: [],
+      0: [], // Domenica
+      1: [], // Lunedì
+      2: [], // Martedì
+      3: [], // Mercoledì
+      4: [], // Giovedì
+      5: [], // Venerdì
+      6: [], // Sabato
     },
   });
 
-  // Funzione per gestire i cambiamenti nei campi del form
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -79,7 +76,6 @@ export default function NewAppointmentPage() {
     }));
   };
 
-  // Carica dati iniziali
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -97,7 +93,6 @@ export default function NewAppointmentPage() {
         if (workerData) {
           setWorkshopId(workerData.workshopId);
 
-          // Carica appuntamenti esistenti
           const { data: appointments } = await supabase
             .from("Appointments")
             .select("date")
@@ -107,7 +102,6 @@ export default function NewAppointmentPage() {
             setBookedSlots(appointments.map((a) => new Date(a.date).getTime()));
           }
 
-          // Carica gli orari di lavoro
           const { data: workingHoursData } = await supabase
             .from("WorkingHours")
             .select("*")
@@ -129,7 +123,6 @@ export default function NewAppointmentPage() {
             });
           }
 
-          // Fetch vehicle types
           const { data: typesData } = await supabase
             .from("VehicleTypes")
             .select("type")
@@ -147,24 +140,22 @@ export default function NewAppointmentPage() {
     fetchData();
   }, []);
 
-  // Genera orari disponibili quando cambia la data
   useEffect(() => {
     if (formData.date && workshopId) {
-      // Sostituisci questa parte nell'useEffect che genera gli orari disponibili
-      const dayOfWeek = formData.date.getDay(); // Rimuovi .toString() per usare numero invece di stringa
-      const dayWorkingHours = workingHours.hours?.[dayOfWeek] || []; // Ora cerca direttamente per numero
+      const dayOfWeek = formData.date.getDay();
+      const dayWorkingHours = workingHours.hours?.[dayOfWeek] || [];
 
-      // Se non ci sono orari specificati per quel giorno, non mostrare nessun orario
       if (dayWorkingHours.length === 0) {
         setAvailableTimes([]);
         return;
       }
 
       const times = [];
-      const appointmentDuration = workingHours.appointmentsDuration || 30; // in minuti
+      const appointmentDuration = workingHours.appointmentsDuration || 30;
 
-      // Per ogni fascia oraria di lavoro
       dayWorkingHours.forEach((slot) => {
+        if (!slot.start || !slot.end) return;
+
         const [startHour, startMinute] = slot.start.split(":").map(Number);
         const [endHour, endMinute] = slot.end.split(":").map(Number);
 
@@ -174,19 +165,15 @@ export default function NewAppointmentPage() {
         const endTime = new Date(formData.date);
         endTime.setHours(endHour, endMinute, 0, 0);
 
-        // Genera gli slot disponibili all'interno di questa fascia oraria
         let currentTime = new Date(startTime);
 
-        while (currentTime <= endTime) {
-          // Verifica che lo slot non sia già prenotato
-          if (!bookedSlots.includes(currentTime.getTime())) {
+        while (currentTime < endTime) {
+          const slotTime = currentTime.getTime();
+          if (!bookedSlots.includes(slotTime)) {
             times.push(new Date(currentTime));
           }
 
-          // Avanza dello slot duration
-          currentTime = new Date(
-            currentTime.getTime() + appointmentDuration * 60000,
-          );
+          currentTime = new Date(currentTime.getTime() + appointmentDuration * 60000);
         }
       });
 
@@ -196,7 +183,6 @@ export default function NewAppointmentPage() {
     }
   }, [formData.date, bookedSlots, workingHours, workshopId]);
 
-  // Filter vehicle types
   useEffect(() => {
     if (typeSearch) {
       const filtered = vehicleTypes.filter((type) =>
@@ -208,14 +194,13 @@ export default function NewAppointmentPage() {
     }
   }, [typeSearch, vehicleTypes]);
 
-  // Disabilita i giorni non lavorativi nel DatePicker
   const isDayDisabled = (date) => {
-    if (!workingHours?.hours) return true;
-    const dayOfWeek = date.getDay(); // Numero invece di stringa
+    if (workingHours?.hours) return true;
+    const dayOfWeek = date.getDay();
     const dayWorkingHours = workingHours.hours[dayOfWeek] || [];
     return dayWorkingHours.length === 0;
   };
-  // Autocompletamento veicoli
+
   const handlePlateChange = async (value) => {
     setFormData((prev) => ({ ...prev, plateNumber: value }));
     setShowVehicleSuggestions(false);
@@ -245,7 +230,6 @@ export default function NewAppointmentPage() {
     setShowTypeDropdown(false);
   };
 
-  // Autocompletamento clienti
   const handleCustomerSearch = async (value) => {
     setFormData((prev) => ({ ...prev, fullName: value }));
     setShowCustomerSuggestions(false);
@@ -268,7 +252,6 @@ export default function NewAppointmentPage() {
     }
   };
 
-  // Selezione veicolo esistente
   const selectVehicle = (vehicle) => {
     setFormData((prev) => ({
       ...prev,
@@ -352,6 +335,7 @@ export default function NewAppointmentPage() {
               plateNumber: formData.plateNumber,
               brand: formData.brand,
               model: formData.model,
+              type: formData.type,
               workshopId,
               ownerId: customerId,
               lastAppointmentId: null,
@@ -524,14 +508,14 @@ export default function NewAppointmentPage() {
                           </motion.button>
                         ))
                       ) : (
-                      <div className="text-sm text-gray-500 col-span-3">
-                        {!workingHours?.hours ? 
-                          "Caricamento orari di lavoro..." :
-                          (workingHours.hours[formData.date?.getDay()]?.length === 0 ?
-                            "Il centro è chiuso in questo giorno" :
-                            "Nessun orario disponibile per questa data")
-                        }
-                      </div>
+                        <div className="text-sm text-gray-500 col-span-3">
+                          {!workingHours?.hours ? 
+                            "Caricamento orari di lavoro..." :
+                            (workingHours.hours[formData.date?.getDay()]?.length === 0 ?
+                              "Il centro è chiuso in questo giorno" :
+                              "Nessun orario disponibile per questa data")
+                          }
+                        </div>
                       )}
                     </div>
                   ) : (

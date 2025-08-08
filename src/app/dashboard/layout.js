@@ -152,7 +152,11 @@ export default function DashboardLayout({ children }) {
               variants={textVariants}
               className="text-2xl font-bold whitespace-nowrap bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent"
             >
-              A.R.C.O.
+              <img 
+                  src="/logo-dark-bg.png" 
+                  alt="Logo ARCO" 
+                  className="w-32" 
+                />
             </motion.div>
             <motion.button
               onClick={toggleSidebar}

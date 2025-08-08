@@ -80,7 +80,6 @@ export default function CustomersPage() {
     customer.phoneNumber?.includes(searchTerm)
   );
 
-  // Funzione per tradurre il metodo di contatto in testo leggibile
   const getContactMethodLabel = (method) => {
     switch(method) {
       case 'whatsapp': return 'WhatsApp';

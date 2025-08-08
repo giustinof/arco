@@ -14,13 +14,13 @@ import { supabase } from "../../../lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
 const DAYS = [
+  "Domenica",
   "Lunedì",
   "Martedì",
   "Mercoledì",
   "Giovedì",
   "Venerdì",
   "Sabato",
-  "Domenica",
 ];
 
 // Struttura di default per gli orari di lavoro
@@ -68,7 +68,6 @@ export default function WorkingHoursPage() {
 
             if (settingsData) {
               setAppointmentsDuration(settingsData.appointmentsDuration || 30);
-              // Usiamo lo spread operator per assicurarci che tutti i giorni siano presenti
               setWorkingHours({
                 ...DEFAULT_WORKING_HOURS,
                 ...(settingsData.hours || {}),

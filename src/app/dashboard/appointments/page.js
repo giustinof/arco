@@ -3,76 +3,137 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import {
-  FiCopy,
   FiEdit,
   FiTrash2,
   FiPlus,
-  FiCheck,
   FiX,
-  FiCalendar,
   FiUser,
   FiClock,
-  FiArrowRight,
+  FiChevronLeft,
+  FiChevronRight,
+  FiInfo,
+  FiCalendar,
 } from "react-icons/fi";
 import { TfiCar } from "react-icons/tfi";
 import { motion, AnimatePresence } from "framer-motion";
 import { navigateWithSearch } from "@/app/components/NavigationHelper";
 
-export default function AppointmentsPage() {
+const timeSlots = Array.from({ length: 21 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 8;
+  const minute = i % 2 === 0 ? "00" : "30";
+  return `${hour.toString().padStart(2, "0")}:${minute}`;
+});
+
+const STATUS_STYLES = {
+  confermata: {
+    bg: "bg-green-50",
+    border: "border-green-200",
+    text: "text-green-800",
+    expandedBg: "bg-green-100",
+    icon: "text-green-500",
+  },
+  annullata: {
+    bg: "bg-red-50",
+    border: "border-red-200",
+    text: "text-red-800",
+    expandedBg: "bg-red-100",
+    icon: "text-red-500",
+  },
+  "in attesa": {
+    bg: "bg-yellow-50",
+    border: "border-yellow-200",
+    text: "text-yellow-800",
+    expandedBg: "bg-yellow-100",
+    icon: "text-yellow-500",
+  },
+  default: {
+    bg: "bg-gray-50",
+    border: "border-gray-200",
+    text: "text-gray-800",
+    expandedBg: "bg-gray-100",
+    icon: "text-gray-500",
+  },
+};
+
+export default function AppointmentsCalendar() {
   const [appointments, setAppointments] = useState([]);
-  const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [appointmentToDelete, setAppointmentToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [copiedId, setCopiedId] = useState(null);
   const [customers, setCustomers] = useState({});
   const [vehicles, setVehicles] = useState({});
   const [workshops, setWorkshops] = useState({});
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [expandedAppointment, setExpandedAppointment] = useState(null);
+
+  const getWeekDays = (date) => {
+    const startDate = new Date(date);
+    startDate.setDate(date.getDate() - date.getDay() + (date.getDay() === 0 ? -6 : 1));
+    
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(startDate);
+      day.setDate(startDate.getDate() + i);
+      return day;
+    });
+  };
+
+  const weekDays = getWeekDays(currentWeek);
+
+  const formatDateKey = (date) => {
+    return date.toISOString().split("T")[0];
+  };
+
+  const getAppointmentsForSlot = (day, timeSlot) => {
+    const dayKey = formatDateKey(day);
+    const [hour, minute] = timeSlot.split(":").map(Number);
+    
+    return appointments.filter((appointment) => {
+      if (!appointment.date) return false;
+      
+      const appointmentDate = new Date(appointment.date);
+      const appointmentDayKey = formatDateKey(appointmentDate);
+      const appointmentHour = appointmentDate.getHours();
+      const appointmentMinute = appointmentDate.getMinutes();
+      
+      return (
+        appointmentDayKey === dayKey &&
+        appointmentHour === hour &&
+        appointmentMinute === minute
+      );
+    });
+  };
 
   useEffect(() => {
-    const queryParams = new URLSearchParams(window.location.search);
-    const searchParam = queryParams.get("search");
-
-    if (searchParam) {
-      setSearchTerm(searchParam);
-      // Rimuovi i parametri dall'URL senza ricaricare la pagina
-      window.history.replaceState(null, "", window.location.pathname);
-    }
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
+    const fetchAppointments = async () => {
       setLoading(true);
 
-      // Fetch appointments with related data
-      const { data: appointmentsData, error: appointmentsError } =
-        await supabase
-          .from("Appointments")
-          .select(
-            `
+      const startOfWeek = new Date(weekDays[0]);
+      startOfWeek.setHours(0, 0, 0, 0);
+      
+      const endOfWeek = new Date(weekDays[6]);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      const { data: appointmentsData, error } = await supabase
+        .from("Appointments")
+        .select(`
           *,
           Customers:customerId (id, fullName, phoneNumber),
           Vehicles:vehicleId (id, plateNumber, brand, model),
           Workshops:workshopId (id, name)
-        `,
-          )
-          .order("date", { ascending: true });
+        `)
+        .gte("date", startOfWeek.toISOString())
+        .lte("date", endOfWeek.toISOString())
+        .order("date", { ascending: true });
 
-      if (appointmentsError) {
-        console.error(
-          "Errore nel caricamento appuntamenti:",
-          appointmentsError,
-        );
-      } else {
-        setAppointments(appointmentsData);
+      if (!error) {
+        setAppointments(appointmentsData || []);
 
-        // Create maps for related data
         const customersMap = {};
         const vehiclesMap = {};
         const workshopsMap = {};
 
-        appointmentsData.forEach((appointment) => {
+        appointmentsData?.forEach((appointment) => {
           if (appointment.Customers) {
             customersMap[appointment.customerId] = appointment.Customers;
           }
@@ -91,119 +152,74 @@ export default function AppointmentsPage() {
       setLoading(false);
     };
 
-    fetchData();
+    fetchAppointments();
+  }, [currentWeek]);
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const searchParam = queryParams.get("search");
+
+    if (searchParam) {
+      setSearchTerm(searchParam);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, []);
-
-  const toggleSelect = (id) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  };
-
-  const copyToClipboard = (text, id) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
-  };
 
   const handleDelete = async (id) => {
     const { error } = await supabase.from("Appointments").delete().eq("id", id);
 
-    if (error) {
-      console.error("Errore nella cancellazione dell'appuntamento:", error);
-    } else {
-      setAppointments((prev) =>
-        prev.filter((appointment) => appointment.id !== id),
-      );
+    if (!error) {
+      setAppointments(prev => prev.filter(a => a.id !== id));
       setShowConfirmDelete(false);
     }
   };
 
-  const openEditForm = (id) => {
-    window.location.href = `/dashboard/appointments/edit/${id}`;
+  const navigateWeek = (direction) => {
+    const newDate = new Date(currentWeek);
+    newDate.setDate(newDate.getDate() + (direction === "next" ? 7 : -7));
+    setCurrentWeek(newDate);
   };
 
-  // Funzione per formattare data e ora
-  const formatDateTime = (dateString) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
+  const toggleExpandAppointment = (id) => {
+    setExpandedAppointment(expandedAppointment === id ? null : id);
+  };
+
+  const formatDate = (date) => {
     return date.toLocaleDateString("it-IT", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
+    });
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    return date.toLocaleTimeString("it-IT", {
       hour: "2-digit",
       minute: "2-digit",
     });
   };
 
-  // Funzione per formattare solo la data
-  const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+  const getStatusStyle = (status) => {
+    return STATUS_STYLES[status] || STATUS_STYLES.default;
   };
 
-  const filteredAppointments = appointments.filter((appointment) => {
+  const filteredAppointments = appointments.filter(appointment => {
+    if (!searchTerm) return true;
+    
     const searchLower = searchTerm.toLowerCase();
-    const dateString = formatDate(appointment.date).toLowerCase(); // Es: "18/06/2025"
-    const createdAtString = formatDate(appointment.created_at).toLowerCase(); // Se vuoi filtrare anche su data di creazione
-
+    const customerName = customers[appointment.customerId]?.fullName?.toLowerCase() || "";
+    const vehiclePlate = vehicles[appointment.vehicleId]?.plateNumber?.toLowerCase() || "";
+    const workshopName = workshops[appointment.workshopId]?.name?.toLowerCase() || "";
+    
     return (
-      customers[appointment.customerId]?.fullName
-        ?.toLowerCase()
-        .includes(searchLower) ||
-      vehicles[appointment.vehicleId]?.plateNumber
-        ?.toLowerCase()
-        .includes(searchLower) ||
-      vehicles[appointment.vehicleId]?.brand
-        ?.toLowerCase()
-        .includes(searchLower) ||
-      vehicles[appointment.vehicleId]?.model
-        ?.toLowerCase()
-        .includes(searchLower) ||
-      workshops[appointment.workshopId]?.name
-        ?.toLowerCase()
-        .includes(searchLower) ||
-      appointment.status?.toLowerCase().includes(searchLower) ||
-      dateString.includes(searchLower) ||
-      createdAtString.includes(searchLower)
+      customerName.includes(searchLower) ||
+      vehiclePlate.includes(searchLower) ||
+      workshopName.includes(searchLower) ||
+      appointment.status?.toLowerCase().includes(searchLower)
     );
   });
-
-  // Funzione per ottenere il badge dello stato
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "confermata":
-        return (
-          <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-            Confermata
-          </span>
-        );
-      case "annullata":
-        return (
-          <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
-            Annullata
-          </span>
-        );
-      case "in attesa":
-        return (
-          <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
-            In attesa
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-            {status || "-"}
-          </span>
-        );
-    }
-  };
 
   return (
     <motion.div
@@ -212,46 +228,72 @@ export default function AppointmentsPage() {
       transition={{ duration: 0.3 }}
       className="p-6"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Appuntamenti</h1>
-          <p className="text-gray-500">
-            Totale appuntamenti:{" "}
-            <span className="font-medium">{appointments.length}</span>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800">Calendario Appuntamenti</h1>
+          <p className="text-sm text-gray-500">
+            Settimana dal {formatDate(weekDays[0])} al {formatDate(weekDays[6])}
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div className="relative flex-grow sm:w-64">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <div className="relative flex-grow sm:w-56">
             <input
               type="text"
               placeholder="Cerca appuntamenti..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                className="absolute right-2.5 top-1.5 text-gray-400 hover:text-gray-600"
               >
-                <FiX />
+                <FiX size={16} />
               </button>
             )}
           </div>
 
           <motion.a
             href="/dashboard/appointments/new"
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition flex items-center justify-center gap-2"
+            className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700 transition flex items-center justify-center gap-1.5"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            <FiPlus />
-            Nuovo Appuntamento
+            <FiPlus size={16} />
+            <span className="hidden sm:inline">Nuovo</span>
           </motion.a>
         </div>
       </div>
 
+      {/* Navigazione settimanale */}
+      <div className="flex items-center justify-between mb-3">
+        <motion.button
+          onClick={() => navigateWeek("prev")}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+        >
+          <FiChevronLeft className="w-5 h-5 text-gray-600" />
+        </motion.button>
+        
+        <h2 className="text-base md:text-lg font-semibold text-gray-700">
+          {weekDays[0].toLocaleDateString("it-IT", { month: "long", year: "numeric" })}
+        </h2>
+        
+        <motion.button
+          onClick={() => navigateWeek("next")}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+        >
+          <FiChevronRight className="w-5 h-5 text-gray-600" />
+        </motion.button>
+      </div>
+
+      {/* Calendario */}
       {loading ? (
         <div className="flex justify-center items-center h-64">
           <motion.div
@@ -261,254 +303,196 @@ export default function AppointmentsPage() {
           />
         </div>
       ) : (
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-        >
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <span className="sr-only">Seleziona</span>
+                  <th className="w-16 px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                    Orario
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Data Appuntamento
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Prenotato il
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cliente
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Veicolo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stato
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Azioni
-                  </th>
+                  {weekDays.map((day) => (
+                    <th
+                      key={day.toString()}
+                      className={`px-1 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider ${
+                        day.getDay() === 0 ? "bg-red-50" : day.getDay() === 6 ? "bg-blue-50" : ""
+                      }`}
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className="font-semibold">
+                          {day.toLocaleDateString("it-IT", { weekday: "short" })}
+                        </span>
+                        <span className={`text-xs ${
+                          new Date().toDateString() === day.toDateString() 
+                            ? "bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center"
+                            : ""
+                        }`}>
+                          {day.getDate()}
+                        </span>
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredAppointments.length > 0 ? (
-                  filteredAppointments.map((appointment) => (
-                    <motion.tr
-                      key={appointment.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.2 }}
-                      whileHover={{
-                        backgroundColor: "rgba(59, 130, 246, 0.05)",
-                      }}
-                      className="border-b border-gray-100"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(appointment.id)}
-                          onChange={() => toggleSelect(appointment.id)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-900 font-medium">
-                        <div className="flex items-center gap-2">
-                          <FiCalendar className="text-gray-500" />
-                          {formatDateTime(appointment.date)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <FiClock className="text-gray-500" />
-                          {formatDateTime(appointment.created_at)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {appointment.customerId ? (
-                          <div className="flex items-center gap-2 group">
-                            <FiUser className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            <div className="flex-1 min-w-0">
-                              <motion.button
-                                onClick={() =>
-                                  navigateWithSearch(
-                                    "/dashboard/customers",
-                                    customers[appointment.customerId]?.fullName,
-                                  )
-                                }
-                                className="flex items-center gap-1.5 cursor-pointer"
-                                initial={false}
-                                whileHover={{
-                                  x: 2,
-                                  color: "#2563eb",
-                                }}
-                                whileTap={{
-                                  x: 4,
-                                  color: "#1d4ed8",
-                                }}
-                                transition={{
-                                  duration: 0.2,
-                                  ease: "easeOut",
-                                }}
-                              >
-                                <span className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors truncate">
-                                  {customers[appointment.customerId]
-                                    ?.fullName || "Cliente sconosciuto"}
-                                </span>
-                                <FiArrowRight className="h-3.5 w-3.5 text-blue-400 opacity-0 group-hover:opacity-100 transform group-hover:translate-x-0 -translate-x-1 transition-all duration-200 ease-out" />
-                              </motion.button>
-                              <div className="text-sm text-gray-500 group-hover:text-blue-400 transition-colors flex items-center">
-                                {customers[appointment.customerId]
-                                  ?.phoneNumber || "-"}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {appointment.vehicleId ? (
-                          <div className="flex items-center gap-2 group">
-                            <TfiCar className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            <div className="flex-1 min-w-0">
-                              <motion.button
-                                onClick={() =>
-                                  navigateWithSearch(
-                                    "/dashboard/vehicles",
-                                    vehicles[appointment.vehicleId]
-                                      ?.plateNumber || "",
-                                  )
-                                }
-                                className="flex items-center gap-1.5 cursor-pointer"
-                                initial={false}
-                                whileHover={{
-                                  x: 2,
-                                  color: "#2563eb",
-                                }}
-                                whileTap={{
-                                  x: 4,
-                                  color: "#1d4ed8",
-                                }}
-                                transition={{
-                                  duration: 0.2,
-                                  ease: "easeOut",
-                                }}
-                              >
-                                <span className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors truncate">
-                                  {vehicles[appointment.vehicleId]?.brand ||
-                                    "Marca sconosciuta"}{" "}
-                                  {vehicles[appointment.vehicleId]?.model || ""}
-                                </span>
-                                <FiArrowRight className="h-3.5 w-3.5 text-blue-400 opacity-0 group-hover:opacity-100 transform group-hover:translate-x-0 -translate-x-1 transition-all duration-200 ease-out" />
-                              </motion.button>
-                              <div className="text-sm text-gray-500 group-hover:text-blue-400 transition-colors flex items-center">
-                                {vehicles[appointment.vehicleId]?.plateNumber ||
-                                  "-"}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(appointment.status)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex gap-3">
-                          <motion.button
-                            onClick={() =>
-                              copyToClipboard(
-                                `Appuntamento: ${formatDateTime(appointment.date)}\n` +
-                                  `Prenotato il: ${formatDateTime(appointment.created_at)}\n` +
-                                  `Cliente: ${customers[appointment.customerId]?.fullName || "-"} (${customers[appointment.customerId]?.phoneNumber || "-"})\n` +
-                                  `Veicolo: ${vehicles[appointment.vehicleId]?.brand || "-"} ${vehicles[appointment.vehicleId]?.model || "-"} (${vehicles[appointment.vehicleId]?.plateNumber || "-"})\n` +
-                                  `Officina: ${workshops[appointment.workshopId]?.name || "-"}\n` +
-                                  `Stato: ${appointment.status || "-"}`,
-                                appointment.id,
-                              )
-                            }
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            className="text-gray-500 hover:text-blue-600 transition-colors cursor-pointer"
-                            title="Copia dettagli"
-                          >
-                            {copiedId === appointment.id ? (
-                              <FiCheck className="text-green-500" />
-                            ) : (
-                              <FiCopy />
-                            )}
-                          </motion.button>
-
-                          <motion.button
-                            onClick={() => openEditForm(appointment.id)}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            className="text-gray-500 hover:text-yellow-600 transition-colors cursor-pointer"
-                            title="Modifica"
-                          >
-                            <FiEdit />
-                          </motion.button>
-
-                          <motion.button
-                            onClick={() => {
-                              setAppointmentToDelete(appointment.id);
-                              setShowConfirmDelete(true);
-                            }}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            className="text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
-                            title="Elimina"
-                          >
-                            <FiTrash2 />
-                          </motion.button>
-                        </div>
-                      </td>
-                    </motion.tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan="8"
-                      className="px-6 py-4 text-center text-gray-500"
-                    >
-                      Nessun appuntamento trovato
+                {timeSlots.map((timeSlot) => (
+                  <tr key={timeSlot} className="hover:bg-gray-50">
+                    <td className="px-2 py-1 whitespace-nowrap text-xs text-gray-500 border-r border-gray-100">
+                      {timeSlot}
                     </td>
+                    {weekDays.map((day) => {
+                      const slotAppointments = getAppointmentsForSlot(day, timeSlot)
+                        .filter(app => filteredAppointments.some(fa => fa.id === app.id));
+                      
+                      return (
+                        <td
+                          key={`${formatDateKey(day)}-${timeSlot}`}
+                          className={`px-0.5 py-0.5 h-12 border-r border-gray-100 ${
+                            day.getDay() === 0 ? "bg-red-50" : day.getDay() === 6 ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <div className="h-full flex flex-col gap-0.5">
+                            {slotAppointments.map((appointment) => {
+                              const status = appointment.status || "";
+                              const style = getStatusStyle(status);
+                              
+                              return (
+                                <motion.div
+                                  key={appointment.id}
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className={`relative rounded-md border cursor-pointer ${style.bg} ${style.border} ${
+                                    expandedAppointment === appointment.id 
+                                      ? `${style.expandedBg} shadow-md border-opacity-70`
+                                      : "hover:border-opacity-100 border-opacity-50"
+                                  }`}
+                                  onClick={() => toggleExpandAppointment(appointment.id)}
+                                >
+                                  <div className="p-1 flex items-start justify-between overflow-hidden">
+                                    <div className="flex-1 min-w-0">
+                                      <motion.button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigateWithSearch(
+                                            "/dashboard/customers",
+                                            customers[appointment.customerId]?.fullName
+                                          );
+                                        }}
+                                        className={`flex items-center gap-0.5 cursor-pointer group ${style.text}`}
+                                      >
+                                        <span className="text-xs font-medium truncate">
+                                          {customers[appointment.customerId]?.fullName || "N/D"}
+                                        </span>
+                                      </motion.button>
+                                      <motion.button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigateWithSearch(
+                                            "/dashboard/vehicles",
+                                            vehicles[appointment.vehicleId]?.plateNumber || ""
+                                          );
+                                        }}
+                                        className="flex items-center gap-0.5 cursor-pointer group"
+                                      >
+                                        <TfiCar className={`text-xs ${style.icon} opacity-70 group-hover:opacity-100`} />
+                                        <span className={`text-[10px] ${style.text} opacity-70 group-hover:opacity-100 truncate`}>
+                                          {vehicles[appointment.vehicleId]?.plateNumber || "N/D"}
+                                        </span>
+                                      </motion.button>
+                                    </div>
+                                    <div className="ml-0.5 flex items-center gap-0.5">
+                                      {expandedAppointment === appointment.id && (
+                                        <div className="flex gap-1">
+                                          <motion.button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              window.location.href = `/dashboard/appointments/edit/${appointment.id}`;
+                                            }}
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.9 }}
+                                            className={`${style.text} hover:opacity-100 opacity-70 transition-opacity`}
+                                            title="Modifica"
+                                          >
+                                            <FiEdit size={12} />
+                                          </motion.button>
+                                          <motion.button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setAppointmentToDelete(appointment.id);
+                                              setShowConfirmDelete(true);
+                                            }}
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.9 }}
+                                            className={`${style.text} hover:opacity-100 opacity-70 transition-opacity`}
+                                            title="Elimina"
+                                          >
+                                            <FiTrash2 size={12} />
+                                          </motion.button>
+                                        </div>
+                                      )}
+                                      <div className={`px-1 py-0.5 rounded-full text-[10px] ${style.text} bg-white bg-opacity-70`}>
+                                        {formatTime(appointment.date)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {expandedAppointment === appointment.id && (
+                                    <motion.div
+                                      initial={{ opacity: 0, height: 0 }}
+                                      animate={{ opacity: 1, height: "auto" }}
+                                      exit={{ opacity: 0, height: 0 }}
+                                      className="px-1 pb-1"
+                                    >
+                                      <div className="flex items-center gap-1 text-xs mt-1">
+                                        <FiInfo size={10} className={`${style.icon} opacity-70`} />
+                                        <span className={`${style.text} font-medium`}>
+                                          {vehicles[appointment.vehicleId]?.brand || ""}{" "}
+                                          {vehicles[appointment.vehicleId]?.model || ""}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 text-xs mt-1">
+                                        <FiCalendar size={10} className={`${style.icon} opacity-70`} />
+                                        <span className={`${style.text}`}>
+                                          {workshops[appointment.workshopId]?.name || "Nessuna officina"}
+                                        </span>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
-        </motion.div>
+        </div>
       )}
 
+      {/* Modale conferma eliminazione */}
       <AnimatePresence>
         {showConfirmDelete && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
             className="fixed inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-50 p-4"
           >
             <motion.div
-              initial={{ scale: 0.95, y: 10, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-200 dark:border-gray-700"
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
             >
-              <div className="p-6">
+              <div className="p-5">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="bg-red-100 dark:bg-red-900/30 p-2 rounded-full">
+                  <div className="bg-red-100 p-2 rounded-full">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      className="h-6 w-6 text-red-600 dark:text-red-400"
+                      className="h-6 w-6 text-red-600"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -521,26 +505,19 @@ export default function AppointmentsPage() {
                       />
                     </svg>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                    Conferma eliminazione
-                  </h3>
+                  <h3 className="text-lg font-bold text-gray-900">Conferma eliminazione</h3>
                 </div>
 
-                <p className="text-gray-600 dark:text-gray-300 mb-6 pl-2">
-                  Sei sicuro di voler eliminare definitivamente questo
-                  appuntamento? Tutti i dati associati verranno rimossi e{" "}
-                  <span className="font-semibold text-red-600 dark:text-red-400">
-                    l'azione è irreversibile
-                  </span>
-                  .
+                <p className="text-gray-600 mb-5">
+                  Sei sicuro di voler eliminare definitivamente questo appuntamento?
                 </p>
 
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                   <motion.button
                     onClick={() => setShowConfirmDelete(false)}
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
-                    className="px-5 py-2.5 rounded-lg text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    className="px-4 py-2 rounded-lg text-gray-700 font-medium hover:bg-gray-100 transition-colors"
                   >
                     Annulla
                   </motion.button>
@@ -548,9 +525,9 @@ export default function AppointmentsPage() {
                     onClick={() => handleDelete(appointmentToDelete)}
                     whileHover={{ scale: 1.03, backgroundColor: "#dc2626" }}
                     whileTap={{ scale: 0.97 }}
-                    className="px-5 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium shadow-sm shadow-red-200 dark:shadow-red-900/30 transition-colors"
+                    className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
                   >
-                    Elimina definitivamente
+                    Elimina
                   </motion.button>
                 </div>
               </div>
