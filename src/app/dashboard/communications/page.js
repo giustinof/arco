@@ -188,7 +188,7 @@ export default function ComunicazioniPage() {
         <p className="text-gray-600">
           I messaggi verranno inviati <strong>automaticamente</strong> il 1° giorno del mese prima della scadenza.
           <br />
-          Esempio: per una scadenza a febbraio, l'invio avverrà il 1° gennaio.
+          Esempio: per una scadenza a febbraio, l&apos;invio avverrà il 1° gennaio.
         </p>
       </div>
 
