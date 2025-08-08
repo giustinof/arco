@@ -454,7 +454,7 @@ export default function VehiclesPage() {
 
                 <p className="text-gray-600 dark:text-gray-300 mb-6 pl-2">
                   Sei sicuro di voler eliminare definitivamente questo veicolo? Tutti i dati associati
-                  verranno rimossi e <span className="font-semibold text-red-600 dark:text-red-400">l'azione è irreversibile</span>.
+                  verranno rimossi e <span className="font-semibold text-red-600 dark:text-red-400">l&apos;azione è irreversibile</span>.
                 </p>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">

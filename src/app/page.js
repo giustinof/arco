@@ -205,7 +205,7 @@ export default function Home() {
             viewport={{ once: true, margin: "-100px" }}
             className="text-xl text-white/80 max-w-2xl mx-auto mb-4"
           >
-            A.R.C.O. è l'acronimo di <strong className="text-blue-300">Archivio Revisioni e Controlli per Officine</strong>: il sistema pensato per semplificare il lavoro quotidiano delle officine.
+            A.R.C.O. è l&apos;acronimo di <strong className="text-blue-300">Archivio Revisioni e Controlli per Officine</strong>: il sistema pensato per semplificare il lavoro quotidiano delle officine.
           </motion.p>
           
           <motion.p
